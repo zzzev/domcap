@@ -8,7 +8,7 @@ let elapsed = 0;
 // requestAnimationFrame callbacks
 let frameCallbacks = [];
 
-// setTimeout callbacks (TODO)
+// setTimeout callbacks
 let scheduledTimeouts = [];
 
 function enterTimewarp() {
@@ -27,7 +27,8 @@ function enterTimewarp() {
 
 // Start capturing content from the sources passed in.
 //
-// captureSources is expected to be an array of svg or canvas elements.
+// captureSources is expected to be an array of svg or canvas elements,
+// or a generator that will repeatedly yield a promise containing one of those.
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
 function start(captureSources, framesToCapture = 60, fps = 60) {
@@ -62,40 +63,34 @@ function renderFrame(captureSources, frame) {
   return new Promise(function (resolve) {
     console.log(`rendering frame ${frame}`);
     
-    if (frameCallbacks.length) {
-      const toCall = frameCallbacks;
-      frameCallbacks = [];
-      toCall.forEach(cb => cb(elapsed));
-    }
-
-    if (scheduledTimeouts.length) {
-      firingTimeouts = scheduledTimeouts.filter(d => d[0] <= elapsed);
-      if (firingTimeouts.length) {
-        firingTimeouts.forEach(d => d[1].apply(this, d[2]));
-        scheduledTimeouts = scheduledTimeouts.filter(d => d[0] > elapsed);
-      }
-    }
+    tick();
     
-    let promises = captureSources.map(source => {
-      if (source instanceof HTMLCanvasElement) {
-        return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
-      } else if (source instanceof SVGSVGElement) {
-        // save svg frame to img; on load it will resolve the promise with the svg frame
-        // and the canvas one.
-        const serialized = new XMLSerializer().serializeToString(source);
-        const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
-        const img = new Image();
-        return new Promise((resolve) => {
-          img.onload = () => resolve(img);
-          img.src = url;
-        });
-      }
+    let promises = captureSources.map(rawSource => {
+      const wrappedSource = rawSource.next ? rawSource.next().value : Promise.resolve(rawSource);
+      return wrappedSource.then(source => {
+        if (source instanceof HTMLCanvasElement) {
+          return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
+        } else if (source instanceof SVGSVGElement) {
+          // save svg frame to img; on load it will resolve the promise with the svg frame
+          // and the canvas one.
+          const serialized = new XMLSerializer().serializeToString(source);
+          const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
+          const img = new Image();
+          return new Promise((resolve) => {
+            img.onload = () => resolve(img);
+            img.src = url;
+          });
+        }
+      });
     });
 
     resolve(Promise.all(promises));
   });
 }
 
+// Given the 2D array of image frames (number of frames * number of sources),
+// render them into a video by drawing them to a canvas element we're capturing
+// video from.
 function renderFramesToVideo(imgFrames) {
   const width = imgFrames[0][0].width;
   const height = imgFrames[0][0].height;
@@ -118,14 +113,14 @@ function renderFramesToVideo(imgFrames) {
     recorder.onstop = () => {
       console.log(data);
       var url = URL.createObjectURL(new Blob(data, { type: 'video/webm' }));
-      const video = d3.select(document.createElement('video'))
-        .attr('src', url)
-        .attr('controls', true)
-        .attr('autoplay', true)
-        .attr('loop', true)
-        .style('width', width + 'px')
-        .style('height', height + 'px');
-      res(video.node());
+      const video = document.createElement('video');
+      video.setAttribute('src', url);
+      video.setAttribute('controls', true);
+      video.setAttribute('autoplay', true);
+      video.setAttribute('loop', true);
+      video.style.width = width + 'px';
+      video.style.height = height + 'px';
+      res(video);
     };
   });
 
@@ -153,6 +148,26 @@ function renderFramesToVideo(imgFrames) {
   return finishedProcessing;
 }
 
+function tick() {
+  if (frameCallbacks.length) {
+    const toCall = frameCallbacks;
+    frameCallbacks = [];
+    toCall.forEach(cb => cb(elapsed));
+  }
+
+  if (scheduledTimeouts.length) {
+    firingTimeouts = scheduledTimeouts.filter(d => d[0] <= elapsed);
+    if (firingTimeouts.length) {
+      firingTimeouts.forEach(d => d[1].apply(this, d[2]));
+      scheduledTimeouts = scheduledTimeouts.filter(d => d[0] > elapsed);
+    }
+  }
+}
+
+// Reset callbacks we overrode.
+// 
+// If you use a library which captures the callbacks (e.g. d3), this may not return 
+// everything to normal unless you re-execute the library.
 function reset() {
   window.requestAnimationFrame = _requestAnimationFrame;
   window.setTimeout = _setTimeout;
@@ -165,5 +180,5 @@ function reset() {
 }
 
 export default {
-  enterTimewarp, start, reset
+  enterTimewarp, start, reset, tick
 };
