@@ -1,4 +1,4 @@
-import { svg as createSvg, context2d } from './util.js';
+import { svg as createSvg, context2d } from './../src/util.js';
 
 async function getD3() {
   return {...d3, ...(await d3.require('d3'))};

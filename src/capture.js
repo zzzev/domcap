@@ -48,6 +48,7 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
   let framePromises = [];
   while (frame < framesToCapture) {
     elapsed = frame * frameLengthInMs;
+    tick();
     framePromises.push(renderFrame(captureSources, frame));
     frame++;
   }
@@ -63,11 +64,8 @@ function renderFrame(captureSources, frame) {
   return new Promise(function (resolve) {
     console.log(`rendering frame ${frame}`);
     
-    tick();
-    
     let promises = captureSources.map(rawSource => {
-      const wrappedSource = rawSource.next ? rawSource.next().value : Promise.resolve(rawSource);
-      return wrappedSource.then(source => {
+      const handleSource = source => {
         if (source instanceof HTMLCanvasElement) {
           return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
         } else if (source instanceof SVGSVGElement) {
@@ -81,7 +79,12 @@ function renderFrame(captureSources, frame) {
             img.src = url;
           });
         }
-      });
+      };
+      if (rawSource.next) {
+        return rawSource.next().value.then(handleSource)
+      } else {
+        return handleSource(rawSource);
+      }
     });
 
     resolve(Promise.all(promises));

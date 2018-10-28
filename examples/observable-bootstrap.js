@@ -1,17 +1,6 @@
-import capture from './capture.js';
+import capture from './../src/capture.js';
 
 const bootstrap = async function() {
-  capture.enterTimewarp();
-  const animation = await import('./animation.js');
-  const video = await capture.start([
-    (await animation.rainbowCanvas()),
-    (await animation.scaleSquare()).node(),
-    (await animation.spinSquare()).node(),
-  ]);
-  document.body.appendChild(video);
-};
-
-const bootstrapObservable = async function() {
   capture.enterTimewarp();
   const [runtime, notebook] = await Promise.all([
     import('https://unpkg.com/@observablehq/notebook-runtime@1?module'),
@@ -45,14 +34,14 @@ const bootstrapObservable = async function() {
       yield promise;
     }
   })();
-  const video = await capture.start([canvasGenerator]);
+  const video = await capture.start([canvasGenerator], 600);
   document.body.appendChild(video);
 };
 
 if (document.readyState !== 'done') {
-  window.addEventListener('load', bootstrapObservable);
+  window.addEventListener('load', bootstrap);
 } else {  
-  bootstrapObservable();
+  bootstrap();
 }
 
 function getPromiseParts() {
