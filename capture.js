@@ -25,7 +25,12 @@ function enterTimewarp() {
   performance.now = () => elapsed;
 }
 
-function start(svg, framesToCapture = 60, fps = 60) {
+// Start capturing content from the sources passed in.
+//
+// captureSources is expected to be an array of svg or canvas elements.
+// returns a promise which will resolve with an HTML video element containing
+// the rendered video.
+function start(captureSources, framesToCapture = 60, fps = 60) {
   if (_requestAnimationFrame === undefined || _setTimeout === undefined) {
     enterTimewarp();
   }
@@ -42,7 +47,7 @@ function start(svg, framesToCapture = 60, fps = 60) {
   let framePromises = [];
   while (frame < framesToCapture) {
     elapsed = frame * frameLengthInMs;
-    framePromises.push(renderFrame(svg, frame));
+    framePromises.push(renderFrame(captureSources, frame));
     frame++;
   }
 
@@ -50,9 +55,10 @@ function start(svg, framesToCapture = 60, fps = 60) {
   return Promise.all(framePromises).then(renderFramesToVideo);
 }
 
-// Render frame syncronously, then serialize the svg into an image and return
-// a promise that will resolve with the image when the image's load event fires.
-function renderFrame(svg, frame) {
+// Render frame syncronously for each capture source, then serialize the svgs
+// into an image or copy the contents of the canvas, and return a promise that
+// will resolve with the captured images when they're fully loaded.
+function renderFrame(captureSources, frame) {
   return new Promise(function (resolve) {
     console.log(`rendering frame ${frame}`);
     
@@ -70,19 +76,29 @@ function renderFrame(svg, frame) {
       }
     }
     
-    // save svg frame to img; on load it will resolve the promise with the svg frame
-    // and the canvas one.
-    const serialized = new XMLSerializer().serializeToString(svg);
-    const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.src = url;
+    let promises = captureSources.map(source => {
+      if (source instanceof HTMLCanvasElement) {
+        return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
+      } else if (source instanceof SVGSVGElement) {
+        // save svg frame to img; on load it will resolve the promise with the svg frame
+        // and the canvas one.
+        const serialized = new XMLSerializer().serializeToString(source);
+        const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
+        const img = new Image();
+        return new Promise((resolve) => {
+          img.onload = () => resolve(img);
+          img.src = url;
+        });
+      }
+    });
+
+    resolve(Promise.all(promises));
   });
 }
 
 function renderFramesToVideo(imgFrames) {
-  const width = imgFrames[0].width;
-  const height = imgFrames[0].height;
+  const width = imgFrames[0][0].width;
+  const height = imgFrames[0][0].height;
   const data = [];
   const stream = new MediaStream();
   const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
@@ -91,7 +107,8 @@ function renderFramesToVideo(imgFrames) {
       data.push(event.data);
     }
   };
-  const canvas = context2d(width, height).canvas;
+  const ctx = context2d(width, height);
+  const canvas = ctx.canvas;
   const canvasStream = canvas.captureStream();
   for (let track of canvasStream.getVideoTracks()) {
     stream.addTrack(track);
@@ -114,11 +131,16 @@ function renderFramesToVideo(imgFrames) {
 
   function drawFrameToRecorder() {
     if (imgFrames.length) {
-      const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, width, height);
-      const img = imgFrames.shift();
+      const images = imgFrames.shift();
+      images.forEach(image => {
+        if (image instanceof ImageData) {
+          ctx.putImageData(image, 0, 0);
+        } else if (image instanceof HTMLImageElement) {
+          ctx.drawImage(image, 0, 0, width, height);
+        }
+      });
       
-      ctx.drawImage(img, 0, 0, width, height);
       _requestAnimationFrame(drawFrameToRecorder);
     } else {
       recorder.stop();

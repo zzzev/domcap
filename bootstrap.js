@@ -1,10 +1,13 @@
-import svgcap from './capture.js';
-svgcap.enterTimewarp();
+import capture from './capture.js';
+capture.enterTimewarp();
 
 const bootstrap = async function() {
   const animation = await import('./animation.js');
-  const svg = (await animation.default()).node();
-  const video = await svgcap.start(svg);
+  const video = await capture.start([
+    (await animation.rainbowCanvas()),
+    (await animation.scaleSquare()).node(),
+    (await animation.spinSquare()).node(),
+  ]);
   document.body.appendChild(video);
 };
 
