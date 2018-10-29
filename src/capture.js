@@ -1,6 +1,6 @@
 import {context2d} from './util.js';
 
-let _requestAnimationFrame, _setTimeout, _now;
+let _requestAnimationFrame, _setTimeout, _now, _dateNow;
 
 let started = false;
 let elapsed = 0;
@@ -22,7 +22,9 @@ function enterTimewarp() {
     scheduledTimeouts.push([arguments[1] + elapsed, arguments[0], arguments.slice(2)]);
   }
   _now = performance.now;
+  _dateNow = Date.now;
   performance.now = () => elapsed;
+  Date.now = () => elapsed;
 }
 
 // Start capturing content from the sources passed in.
@@ -40,6 +42,7 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
     throw new Error('Cannot start capture when already started');
   }
   started = true;
+  sendStatusEvent('Started processing');
 
   const frameLengthInMs = 1000 / fps;
 
@@ -62,8 +65,6 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
 // will resolve with the captured images when they're fully loaded.
 function renderFrame(captureSources, frame) {
   return new Promise(function (resolve) {
-    console.log(`rendering frame ${frame}`);
-    
     let promises = captureSources.map(rawSource => {
       const handleSource = source => {
         if (source instanceof HTMLCanvasElement) {
@@ -95,11 +96,14 @@ function renderFrame(captureSources, frame) {
 // render them into a video by drawing them to a canvas element we're capturing
 // video from.
 function renderFramesToVideo(imgFrames) {
+  sendStatusEvent('Done capturing; rendering to video...');
   const width = imgFrames[0][0].width;
   const height = imgFrames[0][0].height;
   const data = [];
   const stream = new MediaStream();
-  const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  const recorder = new MediaRecorder(stream, {
+    mimeType: 'video/webm',
+  });
   recorder.ondataavailable = function(event) {
     if (event.data && event.data.size) {
       data.push(event.data);
@@ -114,7 +118,7 @@ function renderFramesToVideo(imgFrames) {
 
   const finishedProcessing = new Promise((res) => {
     recorder.onstop = () => {
-      console.log(data);
+      sendStatusEvent('Done processing, creating video blob object');
       var url = URL.createObjectURL(new Blob(data, { type: 'video/webm' }));
       const video = document.createElement('video');
       video.setAttribute('src', url);
@@ -175,6 +179,7 @@ function reset() {
   window.requestAnimationFrame = _requestAnimationFrame;
   window.setTimeout = _setTimeout;
   performance.now = _now;
+  Date.now = _dateNow;
   if (started) {
     frameCallbacks = [];
     scheduledTimeouts = [];
@@ -184,4 +189,8 @@ function reset() {
 
 export default {
   enterTimewarp, start, reset, tick
+};
+
+function sendStatusEvent(message) {
+  document.dispatchEvent(new CustomEvent('capture', {detail: message}));
 };

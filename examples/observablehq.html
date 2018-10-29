@@ -3,6 +3,20 @@
   <head>
     <script type="module" src="observable-bootstrap.js"></script>
   </head>
-  <body style="margin: 0; padding: 0;">
+  <body style="margin: 0; padding: 10px;">
+    <section id="ui">
+      <input name="notebook" id="notebook" type="text" value="@mbostock/spiral-raster">
+      <label for="notebook">notebook</label>
+      <br />
+      <input name="length" id="length" type="number" value="5">
+      <label for="length">length (in s)</label>
+      <br />
+      <input name="cell" id="cell" type="text" value="canvas">
+      <label for="cell">cell name to render</label>
+      <br />
+      <button id="load">render video</button>
+      <div id="status"></div>
+    </section>
+    <section id="result"></section>
   </body>
 </html>

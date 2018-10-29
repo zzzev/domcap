@@ -1,10 +1,23 @@
 import capture from './../src/capture.js';
 
-const bootstrap = async function() {
+const setStatus = function(text) {
+  document.querySelector('#status').innerText = text;
+}
+
+const bootstrap = function() {
+  document.addEventListener('capture', (event) => setStatus(event.detail));
+  document.querySelector('#load').addEventListener('click', load);
+}
+
+const load = async function() {
+  const loadStartTime = Date.now();
+  const result = document.querySelector('#result');
+  result.innerHTML = '';
   capture.enterTimewarp();
+  setStatus('Loading notebook and runtime...');
   const [runtime, notebook] = await Promise.all([
     import('https://unpkg.com/@observablehq/notebook-runtime@1?module'),
-    import('https://api.observablehq.com/@mbostock/spiral-raster.js'),
+    import(`https://api.observablehq.com/${document.querySelector('#notebook').value}.js`),
   ]);
   const canvasGenerator = (function* () {
     let [promise, res, rej] = getPromiseParts();
@@ -34,8 +47,15 @@ const bootstrap = async function() {
       yield promise;
     }
   })();
-  const video = await capture.start([canvasGenerator], 600);
-  document.body.appendChild(video);
+  setStatus('Capturing video in background...');
+  const numFrames = 60 * parseFloat(document.querySelector('#length').value);
+  const video = await capture.start([canvasGenerator], numFrames);
+  const duration = Date.now() - loadStartTime;
+  setStatus(`Displaying captured video; took ${duration / 1000} seconds
+              to render ${numFrames} frames`);
+  result.appendChild(video);
+
+  return false;
 };
 
 if (document.readyState !== 'done') {
