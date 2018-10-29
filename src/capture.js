@@ -57,7 +57,7 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
   }
 
   reset();
-  return Promise.all(framePromises).then(renderFramesToVideo);
+  return Promise.all(framePromises).then(compositeFrames).then(renderFramesToVideo);
 }
 
 // Render frame syncronously for each capture source, then serialize the svgs
@@ -93,12 +93,31 @@ function renderFrame(captureSources, frame) {
 }
 
 // Given the 2D array of image frames (number of frames * number of sources),
-// render them into a video by drawing them to a canvas element we're capturing
-// video from.
-function renderFramesToVideo(imgFrames) {
-  sendStatusEvent('Done capturing; rendering to video...');
+// render them into a 1D array of composited frames.
+function compositeFrames(imgFrames) {
+  sendStatusEvent('Done capturing; compositing sources...');
   const width = imgFrames[0][0].width;
   const height = imgFrames[0][0].height;
+  const ctx = context2d(width, height);
+  return imgFrames.map(frames => {
+    ctx.clearRect(0, 0, width, height);
+    frames.forEach(image => {
+      if (image instanceof ImageData) {
+        ctx.putImageData(image, 0, 0);
+      } else if (image instanceof HTMLImageElement) {
+        ctx.drawImage(image, 0, 0, width, height);
+      }
+    });
+    return ctx.getImageData(0, 0, width, height);
+  });
+}
+
+// Given the 1D array of image frames render them into a video by drawing
+// them to a canvas element we're capturing video from.
+function renderFramesToVideo(imgFrames) {
+  sendStatusEvent('Done compositing; rendering to video...');
+  const width = imgFrames[0].width;
+  const height = imgFrames[0].height;
   const data = [];
   const stream = new MediaStream();
   const recorder = new MediaRecorder(stream, {
@@ -111,8 +130,7 @@ function renderFramesToVideo(imgFrames) {
   };
   const ctx = context2d(width, height);
   const canvas = ctx.canvas;
-  const canvasStream = canvas.captureStream();
-  for (let track of canvasStream.getVideoTracks()) {
+  for (let track of canvas.captureStream().getVideoTracks()) {
     stream.addTrack(track);
   }
 
@@ -134,14 +152,7 @@ function renderFramesToVideo(imgFrames) {
   function drawFrameToRecorder() {
     if (imgFrames.length) {
       ctx.clearRect(0, 0, width, height);
-      const images = imgFrames.shift();
-      images.forEach(image => {
-        if (image instanceof ImageData) {
-          ctx.putImageData(image, 0, 0);
-        } else if (image instanceof HTMLImageElement) {
-          ctx.drawImage(image, 0, 0, width, height);
-        }
-      });
+      ctx.putImageData(imgFrames.shift(), 0, 0);
       
       _requestAnimationFrame(drawFrameToRecorder);
     } else {
@@ -192,5 +203,6 @@ export default {
 };
 
 function sendStatusEvent(message) {
+  console.info(message);
   document.dispatchEvent(new CustomEvent('capture', {detail: message}));
 };
