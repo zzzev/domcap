@@ -1,3 +1,8 @@
+export const sendStatusEvent = function sendStatusEvent(message) {
+  console.info(message);
+  document.dispatchEvent(new CustomEvent('capture', {detail: message}));
+};
+
 // Convenience function for working with async code.
 export const getPromiseParts = function getPromiseParts() {
   let resolve, reject;

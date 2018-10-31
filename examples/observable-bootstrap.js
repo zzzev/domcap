@@ -24,7 +24,6 @@ const load = async function() {
     let [promise, res, rej] = getPromiseParts();
     const callbacks = [[res, rej]];
     const lib = new runtime.Library();
-    // fake 1080p width for runtime
     lib.width = function* () {yield parseFloat(document.querySelector('#width').value);};
     
     runtime.Runtime.load(notebook.default, lib, variable => {
@@ -57,7 +56,8 @@ const load = async function() {
   const video = await capture.start([canvasGenerator], {
     format: Array.from(document.querySelectorAll('input[name=format]'))
         .filter(node => node.checked)[0].id,
-    framesToCapture: numFrames
+    framesToCapture: numFrames,
+    batchSize: parseInt(document.querySelector('#batch').value)
   });
   const duration = Date.now() - loadStartTime;
   setStatus(`Completed; took ${duration / 1000} seconds

@@ -10,11 +10,13 @@ Unlike ccapture, domcap supports capturing svg content and multiple composited s
 
 See the examples directory for usage examples. They expect to be run via a command like `python3 -m http.server` from the root of this repo.
 
+If you want to use [ffmpegserver.js](https://github.com/greggman/ffmpegserver.js), download and install that repo, and run it alongside the example. The Observable example has some configurable options that you can play with to get a sense of how it works.
+
 ## Limitations
 
 - Can be slow when creating longer videos, as all the data is held in memory (in addition to the normal weight of the animation you're running)
 - Only works in a recent version of Chrome (the only browser so far which allows encoding of webm video from MediaStream API)
-- Video output only as .webm
+- Video output only as .webm in browser, otherwise requires using ffmpegserver.js as described above.
 
 ## Possible feature additions
 
@@ -22,6 +24,4 @@ There's a lot of room for improvement here; the following things are definitely 
 
 - headless mode
 - output image sets or gifs
-- do something like ccapture's ffmpeg server for more output options
-- batch big jobs into smaller pieces to reduce memory pressure
-- allow ui to update during job to see progress
+- better progress notification

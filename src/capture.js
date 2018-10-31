@@ -1,4 +1,6 @@
-import {context2d, getPromiseParts} from './util.js';
+import {context2d, getPromiseParts, sendStatusEvent} from './util.js';
+import {startFFMpegServer, sendFramestoFFMpegServer} from './capturers/ffmpeg.js';
+import {startRenderingVideo, renderFramesToVideo} from './capturers/webm.js';
 
 let _requestAnimationFrame, _setTimeout, _now, _dateNow;
 
@@ -21,7 +23,7 @@ function enterTimewarp() {
   }
   _setTimeout = window.setTimeout;
   window.setTimeout = function(callback, delay) {
-    scheduledTimeouts.push([arguments[1] + elapsed, arguments[0], arguments.slice(2)]);
+    scheduledTimeouts.push([arguments[1] + elapsed, arguments[0], Array.from(arguments).slice(2)]);
   }
   _now = performance.now;
   _dateNow = Date.now;
@@ -35,16 +37,24 @@ function enterTimewarp() {
 // or a generator that will repeatedly yield a promise containing one of those.
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
-function start(captureSources, options) {
-  const source = captureSources[0];
-  options = {
+async function start(captureSources, options) {
+  let layoutSource;
+  const nonGeneratorSources = captureSources.filter(s => !s.next);
+  if (nonGeneratorSources.length) {
+    layoutSource = captureSources[0];
+  } else {
+    const sourcePromise = captureSources[0].next().value;
+    tick();
+    layoutSource = await sourcePromise;
+  }
+  options = { // default options
     framesToCapture:60,
     fps: 60,
-    format: 'ffmpeg',
-    // format: 'webm',
-    width: source.width,
-    height: source.height,
-    ...options
+    batchSize: 20,
+    format: 'ffmpeg', // other options: 'webm'
+    width: layoutSource.width,
+    height: layoutSource.height,
+    ...options // override with any user specified
   }
 
   if (options.format === 'ffmpeg') {
@@ -68,20 +78,47 @@ function start(captureSources, options) {
 
   const frameLengthInMs = 1000 / options.fps;
 
-  // which frame (ordinal) are we rendering
-  let frame = 0;
-  let framePromises = [];
-  while (frame < options.framesToCapture) {
-    elapsed = frame * frameLengthInMs;
-    tick();
-    framePromises.push(renderFrame(captureSources, frame));
-    frame++;
+  let stopCallback;
+  if (options.format === 'ffmpeg') {
+    stopCallback = startFFMpegServer(ffmpegServer);
+  } else if (options.format === 'webm') {
+    stopCallback = startRenderingVideo(options.width, options.height);
   }
 
+  const numBatches = Math.ceil(options.framesToCapture / options.batchSize);
+  let batchIndex = 0;
+  while (batchIndex < numBatches) {
+    const batchMin = batchIndex * options.batchSize;
+    batchIndex++;
+    const batchMax = batchIndex * options.batchSize;
+    console.log(`batch ${batchIndex} (${batchMin}-${batchMax})`);
+    // which frame (ordinal) are we rendering
+    let frame = batchMin;
+    let framePromises = [];
+    while (frame < Math.min(batchMax, options.framesToCapture)) {
+      elapsed = frame * frameLengthInMs;
+      const sourcePromises = Promise.all(captureSources.map(source => {
+        if (source.next) {
+          return source.next().value;
+        }
+        return Promise.resolve(source)
+      }));
+      tick();
+      framePromises.push(renderFrame(await sourcePromises, frame));
+      frame++;
+    }
+    console.log('awaiting batch frames');
+    const compositedFrames = await Promise.all(framePromises).then(compositeFrames);
+    if (options.format === 'ffmpeg') {
+      await sendFramestoFFMpegServer(compositedFrames);
+    } else if (options.format === 'webm') {
+      await renderFramesToVideo(compositedFrames, _requestAnimationFrame);
+    } else {
+      throw new Error('unknown format ' + options.format);
+    }
+  }
   reset();
-
-  let renderer = options.format === 'ffmpeg' ? renderFramesToFFMpegServer : renderFramesToVideo;
-  return Promise.all(framePromises).then(compositeFrames).then(renderer);
+  return stopCallback();
 }
 
 // Render frame syncronously for each capture source, then serialize the svgs
@@ -147,98 +184,6 @@ function compositeFrames(imgFrames) {
   return result;
 }
 
-// Given the 1D array of image frames render them into a video via ffmpegserver.js
-async function renderFramesToFFMpegServer(imgFrames) {
-  let [promise, resolve, reject] = getPromiseParts();
-  sendStatusEvent('rendering to FFMpegServer');
-  let processedCallback;
-  ffmpegServer.on('error', function (error) {
-    const result = document.createElement('div');
-    result.innerText = `error: ${error.result.stderr}`;
-    result.style.color = 'red';
-    reject(result);
-  });
-  ffmpegServer.on('finished', function( url, size ) {
-    const result = document.createElement('a');
-    result.innerText = 'Sent frames to server';
-    result.setAttribute('href', url);
-    resolve(result);
-  });
-  ffmpegServer.on('process', function() {
-    if (processedCallback) processedCallback();
-  });
-  const [w, h] = [imgFrames[0].width, imgFrames[0].height];
-  let ctx = context2d(w, h);
-  for (let i = 0; i < imgFrames.length; i++) {
-    let frame = imgFrames[i];
-    if (!ffmpegServer.safeToProceed()) {
-      const [proceedPromise, proceedResolve] = getPromiseParts();
-      processedCallback = proceedResolve;
-      await proceedPromise;
-    }
-    ctx.clearRect(0, 0, w, h);
-    ctx.putImageData(frame, 0, 0);
-    ffmpegServer.add(ctx.canvas);
-  }
-  sendStatusEvent('sent all frames to FFMpegServer');
-  ffmpegServer.end();
-  return promise;
-}
-
-// Given the 1D array of image frames render them into a video by drawing
-// them to a canvas element we're capturing video from.
-function renderFramesToVideo(imgFrames) {
-  sendStatusEvent('Done compositing; rendering to video...');
-  const width = imgFrames[0].width;
-  const height = imgFrames[0].height;
-  const data = [];
-  const stream = new MediaStream();
-  const recorder = new MediaRecorder(stream, {
-    mimeType: 'video/webm',
-  });
-  recorder.ondataavailable = function(event) {
-    if (event.data && event.data.size) {
-      data.push(event.data);
-    }
-  };
-  const ctx = context2d(width, height);
-  const canvas = ctx.canvas;
-  for (let track of canvas.captureStream().getVideoTracks()) {
-    stream.addTrack(track);
-  }
-
-  const finishedProcessing = new Promise((res) => {
-    recorder.onstop = () => {
-      sendStatusEvent('Done processing, creating video blob object');
-      var url = URL.createObjectURL(new Blob(data, { type: 'video/webm' }));
-      const video = document.createElement('video');
-      video.setAttribute('src', url);
-      video.setAttribute('controls', true);
-      video.setAttribute('autoplay', true);
-      video.setAttribute('loop', true);
-      video.style.width = width + 'px';
-      video.style.height = height + 'px';
-      res(video);
-    };
-  });
-
-  function drawFrameToRecorder() {
-    if (imgFrames.length) {
-      ctx.clearRect(0, 0, width, height);
-      ctx.putImageData(imgFrames.shift(), 0, 0);
-      
-      _requestAnimationFrame(drawFrameToRecorder);
-    } else {
-      recorder.stop();
-    }
-  }
-
-  recorder.start();
-  drawFrameToRecorder();
-
-  return finishedProcessing;
-}
-
 function tick() {
   if (frameCallbacks.length) {
     const toCall = frameCallbacks;
@@ -247,7 +192,7 @@ function tick() {
   }
 
   if (scheduledTimeouts.length) {
-    firingTimeouts = scheduledTimeouts.filter(d => d[0] <= elapsed);
+    const firingTimeouts = scheduledTimeouts.filter(d => d[0] <= elapsed);
     if (firingTimeouts.length) {
       firingTimeouts.forEach(d => d[1].apply(this, d[2]));
       scheduledTimeouts = scheduledTimeouts.filter(d => d[0] > elapsed);
@@ -273,9 +218,4 @@ function reset() {
 
 export default {
   enterTimewarp, start, reset, tick
-};
-
-function sendStatusEvent(message) {
-  console.info(message);
-  document.dispatchEvent(new CustomEvent('capture', {detail: message}));
 };
