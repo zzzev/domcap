@@ -22,7 +22,7 @@ The Observable example has some configurable options that you can play with to g
 
 ## Possible feature additions
 
-There's a lot of room for improvement here; the following things are definitely possible to do, so if you'd like any of these, please file an issue.
+There's a lot of room for improvement here; the following things are definitely possible to do, so if you'd like any of these, please file an issue or PR.
 
 - headless mode (run entirely from command line)
 - output image sets or gifs

@@ -65,14 +65,36 @@ function enterTimewarp() {
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
 async function start(captureSources, options) {
+  if (_requestAnimationFrame === undefined || _setTimeout === undefined) {
+    enterTimewarp();
+  }
+
+  options.generatorSources = options.generatorSources || 'canvas';
+  // Resolve generator-based sources as specified (see description in options)
+  if (options.generatorSources !== 'all') {
+    captureSources = await Promise.all(captureSources.map(async function (source) {
+      if (source.next === undefined) return source;
+      const promise = source.next().value;
+      tick();
+      const resolved = await (promise);
+      const isCanvas = resolved instanceof HTMLCanvasElement;
+      if (options.generatorSources === 'none' ||
+          (options.generatorSources === 'canvas' && !isCanvas)) {
+        return resolved;
+      }
+      return source;
+    }));
+  }
+
   // Grab one of the sources to get the size of the output; if all sources
   // are generators then grab a value off of it and wait for it to resolve first.
   let layoutSource;
   const nonGeneratorSources = captureSources.filter(s => !s.next);
+  let sourcePromise;
   if (nonGeneratorSources.length) {
     layoutSource = captureSources[0];
   } else {
-    const sourcePromise = captureSources[0].next().value;
+    sourcePromise = captureSources[0].next().value;
     tick();
     layoutSource = await sourcePromise;
   }
@@ -81,11 +103,23 @@ async function start(captureSources, options) {
     framesToCapture:60,
     fps: 60,
     batchSize: 20,
-    format: 'ffmpeg', // other options: 'webm'
+    format: 'webm', // other options: 'ffmpeg' (requires separate server)
     width: layoutSource.width,
     height: layoutSource.height,
+    allowTransparency: true, // if false, will add white background
+
+    generatorSources: 'canvas', // other options: 'all', 'none'
+    // If a captureSource is a generator, this determines whether domcap will
+    // request a new result from the generator for each frame, or re-capture the
+    // original element repeatedly.
+    // 'canvas': only canvas elements will be re-requested. (default)
+    // 'all': all generator sources will be re-requested.
+    // 'none': no generator sources will be re-requested.
+
     ...options // override with any user specified
   }
+
+
 
   if (options.format === 'ffmpeg') {
     const serverOptions = {
@@ -94,10 +128,6 @@ async function start(captureSources, options) {
     };
     ffmpegServer = new FFMpegServer.Video(serverOptions);
     ffmpegServer.start(serverOptions);
-  }
-
-  if (_requestAnimationFrame === undefined || _setTimeout === undefined) {
-    enterTimewarp();
   }
 
   if (started) {
@@ -138,7 +168,8 @@ async function start(captureSources, options) {
       frame++;
     }
     console.log('awaiting batch frames');
-    const compositedFrames = await Promise.all(framePromises).then(compositeFrames);
+    const compositedFrames = await Promise.all(framePromises)
+        .then((frames) => compositeFrames(frames, options.allowTransparency));
     if (options.format === 'ffmpeg') {
       await sendFramestoFFMpegServer(compositedFrames);
     } else if (options.format === 'webm') {
@@ -185,7 +216,7 @@ function renderFrame(captureSources, frame) {
 
 // Given the 2D array of image frames (number of frames * number of sources),
 // render them into a 1D array of composited frames.
-function compositeFrames(imgFrames) {
+function compositeFrames(imgFrames, allowTransparency) {
   sendStatusEvent('Done capturing; compositing sources...');
   const width = imgFrames[0][0].width;
   const height = imgFrames[0][0].height;
@@ -197,9 +228,13 @@ function compositeFrames(imgFrames) {
   // Must do this in a loop (vs. functionally) to avoid OOM issues
   while (imgFrames.length) {
     const frames = imgFrames.shift();
-    // build off white background to avoid transparency in video
-    ctx.fillStyle = 'rgb(255,255,255)';
-    ctx.fillRect(0, 0, width, height);
+    if (!allowTransparency) {
+      // build off white background to avoid transparency in video
+      ctx.fillStyle = 'rgb(255,255,255)';
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      ctx.clearRect(0, 0, width, height);
+    }
     frames.forEach(image => {
       if (image instanceof ImageData) {
         imageHelper.putImageData(image, 0, 0);
