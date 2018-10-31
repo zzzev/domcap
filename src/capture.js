@@ -1,6 +1,8 @@
-import {context2d} from './util.js';
+import {context2d, getPromiseParts} from './util.js';
 
 let _requestAnimationFrame, _setTimeout, _now, _dateNow;
+
+let ffmpegServer;
 
 let started = false;
 let elapsed = 0;
@@ -33,7 +35,27 @@ function enterTimewarp() {
 // or a generator that will repeatedly yield a promise containing one of those.
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
-function start(captureSources, framesToCapture = 60, fps = 60) {
+function start(captureSources, options) {
+  const source = captureSources[0];
+  options = {
+    framesToCapture:60,
+    fps: 60,
+    format: 'ffmpeg',
+    // format: 'webm',
+    width: source.width,
+    height: source.height,
+    ...options
+  }
+
+  if (options.format === 'ffmpeg') {
+    const serverOptions = {
+      framerate: options.fps,
+      url: `ws://${document.location.hostname}:8080`,
+    };
+    ffmpegServer = new FFMpegServer.Video(serverOptions);
+    ffmpegServer.start(serverOptions);
+  }
+
   if (_requestAnimationFrame === undefined || _setTimeout === undefined) {
     enterTimewarp();
   }
@@ -44,12 +66,12 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
   started = true;
   sendStatusEvent('Started processing');
 
-  const frameLengthInMs = 1000 / fps;
+  const frameLengthInMs = 1000 / options.fps;
 
   // which frame (ordinal) are we rendering
   let frame = 0;
   let framePromises = [];
-  while (frame < framesToCapture) {
+  while (frame < options.framesToCapture) {
     elapsed = frame * frameLengthInMs;
     tick();
     framePromises.push(renderFrame(captureSources, frame));
@@ -57,7 +79,10 @@ function start(captureSources, framesToCapture = 60, fps = 60) {
   }
 
   reset();
-  return Promise.all(framePromises).then(compositeFrames).then(renderFramesToVideo);
+
+  let renderer = options.format === 'ffmpeg' ? renderFramesToFFMpegServer : renderFramesToVideo;
+
+  return Promise.all(framePromises).then(compositeFrames).then(renderer);
 }
 
 // Render frame syncronously for each capture source, then serialize the svgs
@@ -98,18 +123,83 @@ function compositeFrames(imgFrames) {
   sendStatusEvent('Done capturing; compositing sources...');
   const width = imgFrames[0][0].width;
   const height = imgFrames[0][0].height;
+  
+  const imageHelper = context2d(width, height);
   const ctx = context2d(width, height);
-  return imgFrames.map(frames => {
-    ctx.clearRect(0, 0, width, height);
+  
+  const result = [];
+  while (imgFrames.length) {
+    const frames = imgFrames.shift();
+    // build off white background to avoid transparency in video
+    ctx.fillStyle = 'rgb(255,255,255)';
+    ctx.fillRect(0, 0, width, height);
     frames.forEach(image => {
       if (image instanceof ImageData) {
-        ctx.putImageData(image, 0, 0);
+        imageHelper.putImageData(image, 0, 0);
+        ctx.drawImage(imageHelper.canvas, 0, 0, width, height);
       } else if (image instanceof HTMLImageElement) {
         ctx.drawImage(image, 0, 0, width, height);
       }
     });
-    return ctx.getImageData(0, 0, width, height);
+    result.push(ctx.getImageData(0, 0, width, height));
+  }
+
+  return result;
+
+  // return imgFrames.map(frames => {
+  //   console.log(window.performance.memory.totalJSHeapSize / window.performance.memory.jsHeapSizeLimit);
+
+  //   // build off white background to avoid transparency in video
+  //   ctx.fillStyle = 'rgb(255,255,255)';
+  //   ctx.fillRect(0, 0, width, height);
+  //   frames.forEach(image => {
+  //     if (image instanceof ImageData) {
+  //       imageHelper.putImageData(image, 0, 0);
+  //       ctx.drawImage(imageHelper.canvas, 0, 0, width, height);
+  //     } else if (image instanceof HTMLImageElement) {
+  //       ctx.drawImage(image, 0, 0, width, height);
+  //     }
+  //   });
+  //   return ctx.getImageData(0, 0, width, height);
+  // });
+}
+
+// Given the 1D array of image frames render them into a video via ffmpegserver.js
+async function renderFramesToFFMpegServer(imgFrames) {
+  let [promise, resolve, reject] = getPromiseParts();
+  sendStatusEvent('rendering to FFMpegServer');
+  let processedCallback;
+  ffmpegServer.on('error', function (error) {
+    const result = document.createElement('div');
+    result.innerText = `error: ${error.result.stderr}`;
+    result.style.color = 'red';
+    reject(result);
   });
+  ffmpegServer.on('finished', function( url, size ) {
+    const result = document.createElement('a');
+    result.innerText = 'Sent frames to server';
+    result.setAttribute('href', url);
+    resolve(result);
+  });
+  ffmpegServer.on('process', function() {
+    if (processedCallback) processedCallback();
+  });
+  const [w, h] = [imgFrames[0].width, imgFrames[0].height];
+  let ctx = context2d(w, h);
+  for (let i = 0; i < imgFrames.length; i++) {
+    let frame = imgFrames[i];
+    if (!ffmpegServer.safeToProceed()) {
+      const [proceedPromise, proceedResolve] = getPromiseParts();
+      processedCallback = proceedResolve;
+      await proceedPromise;
+    }
+    ctx.clearRect(0, 0, w, h);
+    ctx.putImageData(frame, 0, 0);
+    ffmpegServer.add(ctx.canvas);
+  }
+  sendStatusEvent('sent all frames to FFMpegServer');
+  ffmpegServer.end();
+  return promise;
 }
 
 // Given the 1D array of image frames render them into a video by drawing

@@ -8,7 +8,7 @@ Unlike ccapture, domcap supports capturing svg content and multiple composited s
 
 ## Usage
 
-See the examples directory for usage examples.
+See the examples directory for usage examples. They expect to be run via a command like `python3 -m http.server` from the root of this repo.
 
 ## Limitations
 

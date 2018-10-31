@@ -1,4 +1,5 @@
 import capture from './../src/capture.js';
+import {getPromiseParts} from './../src/util.js';
 
 const setStatus = function(text) {
   document.querySelector('#status').innerText = text;
@@ -22,7 +23,11 @@ const load = async function() {
   const canvasGenerator = (function* () {
     let [promise, res, rej] = getPromiseParts();
     const callbacks = [[res, rej]];
-    runtime.Runtime.load(notebook.default, variable => {
+    const lib = new runtime.Library();
+    // fake 1080p width for runtime
+    lib.width = function* () {yield parseFloat(document.querySelector('#width').value);};
+    
+    runtime.Runtime.load(notebook.default, lib, variable => {
       if (variable.name === 'canvas') {
         return {
           fulfilled: (value) => {
@@ -49,9 +54,13 @@ const load = async function() {
   })();
   setStatus('Capturing video in background...');
   const numFrames = 60 * parseFloat(document.querySelector('#length').value);
-  const video = await capture.start([canvasGenerator], numFrames);
+  const video = await capture.start([canvasGenerator], {
+    format: Array.from(document.querySelectorAll('input[name=format]'))
+        .filter(node => node.checked)[0].id,
+    framesToCapture: numFrames
+  });
   const duration = Date.now() - loadStartTime;
-  setStatus(`Displaying captured video; took ${duration / 1000} seconds
+  setStatus(`Completed; took ${duration / 1000} seconds
               to render ${numFrames} frames`);
   result.appendChild(video);
 
@@ -62,12 +71,4 @@ if (document.readyState !== 'done') {
   window.addEventListener('load', bootstrap);
 } else {  
   bootstrap();
-}
-
-function getPromiseParts() {
-  let resolve, reject;
-  const promise = new Promise(function (res, rej) {
-    resolve = res, reject = rej;
-  });
-  return [promise, resolve, reject];
 }

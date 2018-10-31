@@ -2,21 +2,31 @@
 <html>
   <head>
     <script type="module" src="observable-bootstrap.js"></script>
+    <script src="./../deps/ffmpegserver.js"></script>
   </head>
   <body style="margin: 0; padding: 10px;">
     <section id="ui">
       <input name="notebook" id="notebook" type="text" value="@mbostock/spiral-raster">
       <label for="notebook">notebook</label>
       <br />
-      <input name="length" id="length" type="number" value="5">
+      <input name="length" id="length" type="number" value="1">
       <label for="length">length (in s)</label>
       <br />
       <input name="cell" id="cell" type="text" value="canvas">
       <label for="cell">cell name to render</label>
       <br />
+      <input name="width" id="width" type="number" value="1920">
+      <label for="width">observable runtime width</label>
+      <br />
+      <input name="format" id="webp" type="radio" value="webp">
+      <label for="webp">webp (in browser)</label>
+      <input name="format" id="ffmpeg" type="radio" value="ffmpeg" checked>
+      <label for="ffmpegserver">ffmpegserver (requires separate server)</label>
+      <br />
       <button id="load">render video</button>
       <div id="status"></div>
     </section>
     <section id="result"></section>
+    <section id="wrapper" style="width:1920px;height:1080px;display:none;"></section>
   </body>
 </html>

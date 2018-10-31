@@ -1,3 +1,12 @@
+// Convenience function for working with async code.
+export const getPromiseParts = function getPromiseParts() {
+  let resolve, reject;
+  const promise = new Promise(function (res, rej) {
+    resolve = res, reject = rej;
+  });
+  return [promise, resolve, reject];
+}
+
 // Convenience functions for creating svg and canvas elements.
 //
 // Lovingly stolen from Observable's stdlib.
