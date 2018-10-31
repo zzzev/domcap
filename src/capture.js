@@ -81,7 +81,6 @@ function start(captureSources, options) {
   reset();
 
   let renderer = options.format === 'ffmpeg' ? renderFramesToFFMpegServer : renderFramesToVideo;
-
   return Promise.all(framePromises).then(compositeFrames).then(renderer);
 }
 
@@ -89,32 +88,32 @@ function start(captureSources, options) {
 // into an image or copy the contents of the canvas, and return a promise that
 // will resolve with the captured images when they're fully loaded.
 function renderFrame(captureSources, frame) {
-  return new Promise(function (resolve) {
-    let promises = captureSources.map(rawSource => {
-      const handleSource = source => {
-        if (source instanceof HTMLCanvasElement) {
-          return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
-        } else if (source instanceof SVGSVGElement) {
-          // save svg frame to img; on load it will resolve the promise with the svg frame
-          // and the canvas one.
-          const serialized = new XMLSerializer().serializeToString(source);
-          const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
-          const img = new Image();
-          return new Promise((resolve) => {
-            img.onload = () => resolve(img);
-            img.src = url;
-          });
-        }
-      };
-      if (rawSource.next) {
-        return rawSource.next().value.then(handleSource)
-      } else {
-        return handleSource(rawSource);
-      }
-    });
+  const [promise, resolve, reject] = getPromiseParts();
 
-    resolve(Promise.all(promises));
+  let promises = captureSources.map(rawSource => {
+    const handleSource = source => {
+      if (source instanceof HTMLCanvasElement) {
+        return Promise.resolve(source.getContext('2d').getImageData(0, 0, source.width, source.height));
+      } else if (source instanceof SVGSVGElement) {
+        // save svg frame to img; on load it will resolve the promise with the svg frame
+        // and the canvas one.
+        const serialized = new XMLSerializer().serializeToString(source);
+        const url = URL.createObjectURL(new Blob([serialized], {type: "image/svg+xml"}));
+        const img = new Image();
+        return new Promise((resolve) => {
+          img.onload = () => resolve(img);
+          img.src = url;
+        });
+      }
+    };
+    if (rawSource.next) {
+      return rawSource.next().value.then(handleSource)
+    } else {
+      return handleSource(rawSource);
+    }
   });
+  resolve(Promise.all(promises));
+  return promise;
 }
 
 // Given the 2D array of image frames (number of frames * number of sources),
@@ -128,6 +127,7 @@ function compositeFrames(imgFrames) {
   const ctx = context2d(width, height);
   
   const result = [];
+  // Must do this in a loop (vs. functionally) to avoid OOM issues
   while (imgFrames.length) {
     const frames = imgFrames.shift();
     // build off white background to avoid transparency in video
@@ -145,23 +145,6 @@ function compositeFrames(imgFrames) {
   }
 
   return result;
-
-  // return imgFrames.map(frames => {
-  //   console.log(window.performance.memory.totalJSHeapSize / window.performance.memory.jsHeapSizeLimit);
-
-  //   // build off white background to avoid transparency in video
-  //   ctx.fillStyle = 'rgb(255,255,255)';
-  //   ctx.fillRect(0, 0, width, height);
-  //   frames.forEach(image => {
-  //     if (image instanceof ImageData) {
-  //       imageHelper.putImageData(image, 0, 0);
-  //       ctx.drawImage(imageHelper.canvas, 0, 0, width, height);
-  //     } else if (image instanceof HTMLImageElement) {
-  //       ctx.drawImage(image, 0, 0, width, height);
-  //     }
-  //   });
-  //   return ctx.getImageData(0, 0, width, height);
-  // });
 }
 
 // Given the 1D array of image frames render them into a video via ffmpegserver.js
