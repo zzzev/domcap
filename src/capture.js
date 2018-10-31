@@ -64,7 +64,7 @@ function enterTimewarp() {
 // or a generator that will repeatedly yield a promise containing one of those.
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
-async function start(captureSources, options) {
+async function start(captureSources, options = {}) {
   if (_requestAnimationFrame === undefined || _setTimeout === undefined) {
     enterTimewarp();
   }
@@ -116,7 +116,7 @@ async function start(captureSources, options) {
     // 'all': all generator sources will be re-requested.
     // 'none': no generator sources will be re-requested.
 
-    ...options // override with any user specified
+    ...options // override defaults with any user specified options
   }
 
 
