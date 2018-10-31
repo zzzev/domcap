@@ -22,6 +22,6 @@ If you want to use [ffmpegserver.js](https://github.com/greggman/ffmpegserver.js
 
 There's a lot of room for improvement here; the following things are definitely possible to do, so if you'd like any of these, please file an issue.
 
-- headless mode
+- headless mode (run entirely from command line)
 - output image sets or gifs
 - better progress notification

@@ -2,8 +2,12 @@ import {context2d, getPromiseParts, sendStatusEvent} from './util.js';
 import {startFFMpegServer, sendFramestoFFMpegServer} from './capturers/ffmpeg.js';
 import {startRenderingVideo, renderFramesToVideo} from './capturers/webm.js';
 
-let _requestAnimationFrame, _setTimeout, _now, _dateNow;
+// Original timing-related callbacks (only populated when in time warp)
+let _requestAnimationFrame, _setTimeout, _clearTimeout, _setInterval, _clearInterval, _now, _dateNow;
+// used for intercepted setTimeout and setInterval functions
+let baseId = 0;
 
+// ffmpegserver.js object
 let ffmpegServer;
 
 let started = false;
@@ -13,17 +17,40 @@ let elapsed = 0;
 let frameCallbacks = [];
 
 // setTimeout callbacks
-let scheduledTimeouts = [];
+// keys are ids
+// values are [scheduledTime, callback, args]
+let scheduledTimeouts = {};
 
+// setInterval callbacks
+// keys are ids
+// values are [baseTime, interval, callback, args]
+// where baseTime is either the time the interval was scheduled or the last time it fired
+let scheduledIntervals = {};
+
+// Replace timing-related globals with intercepted versions so we can manipulate
+// the time space continuum... in this window anyways.
 function enterTimewarp() {
-  // replace globals with intercepted versions
   _requestAnimationFrame = window.requestAnimationFrame;
   window.requestAnimationFrame = function() {
     frameCallbacks.push(arguments[0]);
   }
   _setTimeout = window.setTimeout;
-  window.setTimeout = function(callback, delay) {
-    scheduledTimeouts.push([arguments[1] + elapsed, arguments[0], Array.from(arguments).slice(2)]);
+  window.setTimeout = function(callback, delay, args) {
+    scheduledTimeouts[baseId] = [delay + elapsed, callback, args];
+    return baseId++;
+  }
+  _clearTimeout = window.clearTimeout;
+  window.clearTimeout = function(id) {
+    delete scheduledTimeouts[id];
+  }
+  _setInterval = window.setInterval;
+  window.setInterval = function(callback, delay, ...args) {
+    scheduledIntervals[baseId] = [elapsed, delay, callback, args];
+    return baseId++;
+  }
+  _clearInterval = window.clearInterval;
+  window.clearInterval = function(id) {
+    delete scheduledIntervals[id]
   }
   _now = performance.now;
   _dateNow = Date.now;
@@ -38,6 +65,8 @@ function enterTimewarp() {
 // returns a promise which will resolve with an HTML video element containing
 // the rendered video.
 async function start(captureSources, options) {
+  // Grab one of the sources to get the size of the output; if all sources
+  // are generators then grab a value off of it and wait for it to resolve first.
   let layoutSource;
   const nonGeneratorSources = captureSources.filter(s => !s.next);
   if (nonGeneratorSources.length) {
@@ -47,6 +76,7 @@ async function start(captureSources, options) {
     tick();
     layoutSource = await sourcePromise;
   }
+
   options = { // default options
     framesToCapture:60,
     fps: 60,
@@ -191,12 +221,29 @@ function tick() {
     toCall.forEach(cb => cb(elapsed));
   }
 
-  if (scheduledTimeouts.length) {
-    const firingTimeouts = scheduledTimeouts.filter(d => d[0] <= elapsed);
+  const timeouts = Object.entries(scheduledTimeouts);
+  if (timeouts.length) {
+    const firingTimeouts = timeouts.filter(d => d[1][0] <= elapsed);
     if (firingTimeouts.length) {
-      firingTimeouts.forEach(d => d[1].apply(this, d[2]));
-      scheduledTimeouts = scheduledTimeouts.filter(d => d[0] > elapsed);
+      firingTimeouts.forEach(d => {
+        d[1][1].apply(this, d[1][2]);
+        delete scheduledTimeouts[d[0]];
+      });
     }
+  }
+
+  const intervals = Object.entries(scheduledIntervals);
+  if (intervals.length) {
+    const firingIntervals = intervals.filter(d => {
+      const [id, [baseTime, interval, callback, args]] = d;
+      return elapsed - baseTime > interval;
+    });
+    firingIntervals.forEach(d => {
+      console.log('firing interval');
+      const [id, [baseTime, interval, callback, args]] = d;
+      callback.apply(args);
+      scheduledIntervals[id] = [baseTime + interval, interval, callback, args];
+    });
   }
 }
 

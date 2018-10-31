@@ -9,13 +9,13 @@
       <input name="notebook" id="notebook" type="text" value="d/f675880ae8bf7c6e">
       <label for="notebook">notebook</label>
       <br />
-      <input name="length" id="length" type="number" value="1">
+      <input name="length" id="length" type="number" value="18">
       <label for="length">length (in s)</label>
       <br />
       <input name="cell" id="cell" type="text" value="canvas">
       <label for="cell">cell name to render</label>
       <br />
-      <input name="width" id="width" type="number" value="1920">
+      <input name="width" id="width" type="number" value="3840">
       <label for="width">
         <span>observable runtime width</span>
         <button onclick="setWidth(1280);">720p</button>
@@ -23,14 +23,14 @@
         <button onclick="setWidth(3840);">4k</button>
       </label>
       <br />
-      <input name="batch" id="batch" type="number" value="60">
+      <input name="batch" id="batch" type="number" value="10">
       <label for="batch">
         <span>frame batch size (turn this down if you have OOM issues)</span>
       </label>
       <br />
-      <input name="format" id="webm" type="radio" value="webm" checked>
+      <input name="format" id="webm" type="radio" value="webm">
       <label for="webm">webm (in browser)</label>
-      <input name="format" id="ffmpeg" type="radio" value="ffmpeg">
+      <input name="format" id="ffmpeg" type="radio" value="ffmpeg" checked>
       <label for="ffmpegserver">ffmpegserver (requires separate server)</label>
       <br />
       <button id="load">render video</button>
