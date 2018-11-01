@@ -15,10 +15,8 @@ export const startFFMpegServer = function startFFMpegServer(server) {
     reject(result);
   });
   ffmpegServer.on('finished', function( url, size ) {
-    const result = document.createElement('a');
-    result.innerText = 'Sent frames to server';
-    result.setAttribute('href', url);
-    resolve(result);
+    const filename = url.split('/').slice(-1)[0];
+    resolve(filename);
   });
   return function stopFFMpegServer() {
     ffmpegServer.end();
