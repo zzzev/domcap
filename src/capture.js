@@ -98,15 +98,23 @@ async function start(captureSources, options = {}) {
     tick();
     layoutSource = await sourcePromise;
   }
+  let width, height;
+  if (layoutSource instanceof SVGSVGElement) {
+    width = layoutSource.getAttribute('width');
+    height = layoutSource.getAttribute('height');
+  } else {
+    width = layoutSource.width;
+    height = layoutSource.height;
+  }
 
   options = { // default options
     framesToCapture:60,
     fps: 60,
     batchSize: 20,
     format: 'webm', // other options: 'ffmpeg' (requires separate server)
-    width: layoutSource.width,
-    height: layoutSource.height,
-    allowTransparency: true, // if false, will add white background
+    width,
+    height,
+    allowTransparency: false, // if false, will add white background
 
     generatorSources: 'canvas', // other options: 'all', 'none'
     // If a captureSource is a generator, this determines whether domcap will
@@ -142,7 +150,7 @@ async function start(captureSources, options = {}) {
   if (options.format === 'ffmpeg') {
     stopCallback = startFFMpegServer(ffmpegServer);
   } else if (options.format === 'webm') {
-    stopCallback = startRenderingVideo(options.width, options.height);
+    stopCallback = startRenderingVideo(options);
   }
 
   const numBatches = Math.ceil(options.framesToCapture / options.batchSize);

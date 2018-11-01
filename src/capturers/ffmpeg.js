@@ -1,3 +1,5 @@
+// Note: this file expects to be run with ffmpeg-server.js included on the page.
+
 import {context2d, getPromiseParts, sendStatusEvent} from './../util.js';
 
 let ffmpegServer;

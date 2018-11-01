@@ -3,19 +3,20 @@
   <head>
     <script type="module" src="observable-bootstrap.js"></script>
     <script src="./../deps/ffmpegserver.js"></script>
+    <script src="./../deps/webm-writer.js"></script>
   </head>
   <body style="margin: 0; padding: 10px;">
     <section id="ui">
-      <input name="notebook" id="notebook" type="text" value="d/f675880ae8bf7c6e">
+      <input name="notebook" id="notebook" type="text" value="@mbostock/spiral-raster">
       <label for="notebook">notebook</label>
       <br />
-      <input name="length" id="length" type="number" value="18">
+      <input name="length" id="length" type="number" value="1">
       <label for="length">length (in s)</label>
       <br />
       <input name="cell" id="cell" type="text" value="canvas">
       <label for="cell">cell name to render</label>
       <br />
-      <input name="width" id="width" type="number" value="3840">
+      <input name="width" id="width" type="number" value="1280">
       <label for="width">
         <span>observable runtime width</span>
         <button onclick="setWidth(1280);">720p</button>
@@ -28,9 +29,9 @@
         <span>frame batch size (turn this down if you have OOM issues)</span>
       </label>
       <br />
-      <input name="format" id="webm" type="radio" value="webm">
+      <input name="format" id="webm" type="radio" value="webm" checked>
       <label for="webm">webm (in browser)</label>
-      <input name="format" id="ffmpeg" type="radio" value="ffmpeg" checked>
+      <input name="format" id="ffmpeg" type="radio" value="ffmpeg">
       <label for="ffmpegserver">ffmpegserver (requires separate server)</label>
       <br />
       <button id="load">render video</button>

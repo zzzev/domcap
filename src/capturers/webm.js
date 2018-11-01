@@ -1,62 +1,35 @@
-import {context2d, sendStatusEvent, getPromiseParts} from './../util.js';
+// Note: this file expects to be run with webm-writer.js included on the page.
+import {context2d} from './../util.js';
 
-let ctx, recorder, data, track, stream;
+let videoWriter, ctx;
 
-export const startRenderingVideo = function startRenderingVideo(width, height) {
-  data = [];
-  stream = new MediaStream();
-  ctx = context2d(width, height);
-  track = ctx.canvas.captureStream().getVideoTracks()[0];
-  stream.addTrack(track);
-  recorder = new MediaRecorder(stream, {
-    mimeType: 'video/webm',
+export const startRenderingVideo = function startRenderingVideo(options) {
+  const {width, height, fps} = options;
+  videoWriter = new WebMWriter({
+    quality: 0.95,
+    frameRate: fps
   });
-  recorder.start();
-  recorder.ondataavailable = function(event) {
-    console.log(`data ${event.data.size}`);
-    if (event.data && event.data.size) {
-      data.push(event.data);
-    }
-  };
+  ctx = context2d(width, height);
 
-  const [promise, resolve, reject] = getPromiseParts();
-
-  recorder.onstop = () => {
-    sendStatusEvent('Done processing, creating video blob object');
-    var url = URL.createObjectURL(new Blob(data, { type: 'video/webm' }));
-    const video = document.createElement('video');
-    video.setAttribute('src', url);
-    video.setAttribute('controls', true);
-    video.setAttribute('autoplay', true);
-    video.setAttribute('loop', true);
-    video.style.width = width + 'px';
-    video.style.height = height + 'px';
-    resolve(video);
-  };
-
-  return () => {
-    recorder.stop();
-    return promise;
-  };
-}
-
-// Given the 1D array of image frames render them into a video by drawing
-// them to a canvas element we're capturing video from.
-export const renderFramesToVideo = function renderFramesToVideo(imgFrames, _requestAnimationFrame) {
-  const [promise, resolve] = getPromiseParts();
-  function drawFrameToRecorder() {
-    if (imgFrames.length) {
-      ctx.clearRect(0, 0, imgFrames[0].width, imgFrames[0].height);
-      ctx.putImageData(imgFrames.shift(), 0, 0);
-      // recorder.requestData();
-      track.requestFrame();
-      _requestAnimationFrame(drawFrameToRecorder);
-    } else {
-      console.log('done rendering')
-      resolve();
-    }
+  return function stopWebMWriter() {
+    return videoWriter.complete().then(blob => {
+      const url = URL.createObjectURL(blob);
+      const video = document.createElement('video');
+      video.setAttribute('src', url);
+      video.setAttribute('controls', true);
+      video.setAttribute('autoplay', true);
+      video.setAttribute('loop', true);
+      video.style.width = width + 'px';
+      video.style.height = height + 'px';
+      return video;
+    });
   }
+};
 
-  drawFrameToRecorder();
-  return promise;
-}
+export const renderFramesToVideo = function renderFramesToVideo(imgFrames) {
+  imgFrames.forEach(frame => {
+    ctx.clearRect(0, 0, frame.width, frame.height);
+    ctx.putImageData(frame, 0, 0);
+    videoWriter.addFrame(ctx.canvas);
+  });
+};
